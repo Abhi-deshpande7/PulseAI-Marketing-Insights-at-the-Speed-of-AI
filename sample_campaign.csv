@@ -1,0 +1,40 @@
+campaign_name,channel,segment,date,sent,opens,clicks,conversions
+Summer Sale Blast,Email,New Users,2026-01-01,50000,11000,2500,300
+New Year Push,Push,High Value,2026-01-05,30000,7500,1800,450
+Flash Deal SMS,SMS,Dormant,2026-01-10,20000,3200,640,80
+App Reengagement,In-App,Power Users,2026-01-15,15000,6200,1800,320
+Jan Newsletter,Email,New Users,2026-01-20,48000,10200,2300,290
+Weekend Offer,Push,Active Users,2026-01-25,35000,9000,2100,410
+Feb Newsletter,Email,New Users,2026-02-01,45000,9800,2100,280
+Valentine Push,Push,High Value,2026-02-14,28000,8400,2200,510
+Flash Sale SMS,SMS,Dormant,2026-02-18,22000,3500,700,120
+Spring Teaser,Email,Power Users,2026-03-01,52000,12500,2800,390
+March Push Promo,Push,Active Users,2026-03-05,30000,8700,2000,360
+App Reminder,In-App,Dormant,2026-03-10,18000,5400,1500,260
+Mid March Email,Email,New Users,2026-03-15,47000,10800,2400,310
+Weekend Push Blast,Push,High Value,2026-03-20,32000,9200,2100,430
+SMS Clearance,SMS,Dormant,2026-03-25,21000,3000,600,90
+April Newsletter,Email,New Users,2026-04-01,49000,11500,2500,330
+Easter Push,Push,Active Users,2026-04-05,31000,8900,2050,370
+Reactivation SMS,SMS,Dormant,2026-04-10,23000,3600,750,140
+App Engagement,In-App,Power Users,2026-04-15,16000,6500,1900,350
+Mid April Campaign,Email,High Value,2026-04-20,50000,12000,2700,400
+Weekend Sale Push,Push,Active Users,2026-04-25,34000,9400,2200,420
+May Newsletter,Email,New Users,2026-05-01,51000,12200,2600,340
+Summer Teaser Push,Push,High Value,2026-05-05,33000,9100,2100,410
+Dormant SMS Push,SMS,Dormant,2026-05-10,24000,3700,800,150
+App Promo Blast,In-App,Power Users,2026-05-15,17000,6800,2000,360
+Mid May Email,Email,Active Users,2026-05-20,52000,12500,2800,390
+Flash Weekend Push,Push,Active Users,2026-05-25,35000,9600,2300,440
+June Newsletter,Email,New Users,2026-06-01,53000,13000,2900,420
+Summer Sale Push,Push,High Value,2026-06-05,36000,9800,2400,460
+Reactivation SMS,SMS,Dormant,2026-06-10,25000,3900,850,160
+App Retention,In-App,Power Users,2026-06-15,18000,7000,2100,380
+Mid June Campaign,Email,Active Users,2026-06-20,54000,13200,3000,430
+Weekend Push,Push,High Value,2026-06-25,37000,10000,2500,480
+July Newsletter,Email,New Users,2026-07-01,55000,13500,3100,450
+Monsoon Push,Push,Active Users,2026-07-05,38000,10200,2600,500
+Dormant Recovery SMS,SMS,Dormant,2026-07-10,26000,4000,900,180
+App Reengagement,In-App,Power Users,2026-07-15,19000,7200,2200,400
+Mid July Email,Email,High Value,2026-07-20,56000,13800,3200,470
+Weekend Blast Push,Push,Active Users,2026-07-25,39000,10500,2700,520
