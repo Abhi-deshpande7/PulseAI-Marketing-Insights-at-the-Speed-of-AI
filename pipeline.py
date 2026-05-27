@@ -1,52 +1,83 @@
-import pandas as pd
+﻿import pandas as pd
 import numpy as np
+
 
 def compute_metrics(df):
     df = df.copy()
-    df["open_rate"] = df["opens"] / df["sent"]
-    df["ctr"] = df["clicks"] / df["sent"]
-    df["cvr"] = df["conversions"] / df["clicks"].replace(0, np.nan)
-    df["date"] = pd.to_datetime(df["date"])
-    df = df.fillna(0)
+    df["open_rate"] = df["opens"] / df["sent"].replace(0, float("nan"))
+    df["ctr"] = df["clicks"] / df["opens"].replace(0, float("nan"))
+    df["cvr"] = df["conversions"] / df["clicks"].replace(0, float("nan"))
+    df["roas"] = (df["conversions"] * 50) / df["spend"].replace(0, float("nan"))
+    df[["open_rate", "ctr", "cvr", "roas"]] = df[["open_rate", "ctr", "cvr", "roas"]].fillna(0)
     return df
 
-def detect_anomalies(df):
+
+def detect_anomalies(df, z_thresh=2.5):
     df = df.copy()
-    for metric in ["open_rate", "ctr", "cvr"]:
-        mean = df[metric].mean()
-        std = df[metric].std()
-        df[f"{metric}_zscore"] = (df[metric] - mean) / std
-        df[f"{metric}_flag"] = df[f"{metric}_zscore"].abs() > 2
-    df["is_anomaly"] = df[["open_rate_flag", "ctr_flag", "cvr_flag"]].any(axis=1)
+    df["is_anomaly"] = False
+    df["anomaly_reason"] = ""
+    for col, label in [("open_rate", "open rate"), ("ctr", "CTR"), ("cvr", "CVR")]:
+        mean = df[col].mean()
+        std = df[col].std()
+        if std == 0:
+            continue
+        z = (df[col] - mean) / std
+        mask = z.abs() > z_thresh
+        df.loc[mask, "is_anomaly"] = True
+        df.loc[mask, "anomaly_reason"] += f"Unusual {label} (z={z[mask].round(1).astype(str)}); "
+    df["anomaly_reason"] = df["anomaly_reason"].str.rstrip("; ")
     return df
 
-def segment_summary(df):
-    return df.groupby("segment").agg(
-        avg_open_rate=("open_rate", "mean"),
-        avg_ctr=("ctr", "mean"),
-        avg_cvr=("cvr", "mean"),
-        total_conversions=("conversions", "sum"),
-        campaigns=("campaign_id", "count")
-    ).reset_index()
 
 def channel_summary(df):
-    return df.groupby("channel").agg(
-        avg_open_rate=("open_rate", "mean"),
-        avg_ctr=("ctr", "mean"),
-        avg_cvr=("cvr", "mean"),
-        total_conversions=("conversions", "sum")
-    ).reset_index()
-
-def compute_health_score(df):
-    df = df.copy()
-    open_score  = (df["open_rate"] / df["open_rate"].max()) * 40
-    ctr_score   = (df["ctr"] / df["ctr"].max()) * 35
-    cvr_score   = (df["cvr"] / df["cvr"].max()) * 25
-    df["health_score"] = (open_score + ctr_score + cvr_score).round(1)
-    df["health_label"] = pd.cut(
-        df["health_score"],
-        bins=[0, 40, 70, 100],
-        labels=["Poor", "Average", "Good"]
+    return (
+        df.groupby("channel")
+        .agg(
+            avg_open_rate=("open_rate", "mean"),
+            avg_ctr=("ctr", "mean"),
+            avg_cvr=("cvr", "mean"),
+            avg_roas=("roas", "mean"),
+            total_conversions=("conversions", "sum"),
+            total_spend=("spend", "sum"),
+            campaign_count=("campaign_id", "count"),
+        )
+        .reset_index()
     )
-    return df
 
+
+def segment_summary(df):
+    return (
+        df.groupby("segment")
+        .agg(
+            avg_open_rate=("open_rate", "mean"),
+            avg_ctr=("ctr", "mean"),
+            avg_cvr=("cvr", "mean"),
+            avg_roas=("roas", "mean"),
+            total_conversions=("conversions", "sum"),
+        )
+        .reset_index()
+    )
+
+
+def build_context_summary(df):
+    ch = channel_summary(df)
+    seg = segment_summary(df)
+    anomalies = df[df["is_anomaly"]][["campaign_name", "channel", "segment",
+                                      "open_rate", "ctr", "cvr", "anomaly_reason"]]
+    lines = ["=== CAMPAIGN DATASET OVERVIEW ===",
+             f"Total campaigns: {len(df)}",
+             f"Date range: {df['date'].min().date()} to {df['date'].max().date()}",
+             f"Total spend: ${df['spend'].sum():,.0f}",
+             f"Total conversions: {df['conversions'].sum():,}",
+             f"Anomalies flagged: {df['is_anomaly'].sum()}",
+             "",
+             "=== CHANNEL PERFORMANCE ===",
+             ch[["channel","avg_open_rate","avg_ctr","avg_cvr","avg_roas","total_conversions","total_spend"]].to_string(index=False),
+             "",
+             "=== SEGMENT PERFORMANCE ===",
+             seg[["segment","avg_open_rate","avg_ctr","avg_cvr","avg_roas","total_conversions"]].to_string(index=False),
+             ]
+    if not anomalies.empty:
+        lines += ["", "=== FLAGGED ANOMALY CAMPAIGNS (top 10) ===",
+                  anomalies.head(10).to_string(index=False)]
+    return "\n".join(lines)
