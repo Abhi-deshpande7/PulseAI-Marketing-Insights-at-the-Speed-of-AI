@@ -3,12 +3,16 @@ import plotly.express as px
 import plotly.graph_objects as go
 import pandas as pd
 import io
+from datetime import datetime
 
 from data_generator import generate_campaigns
 from pipeline import compute_metrics, detect_anomalies, segment_summary, channel_summary, build_context_summary
 from insights import generate_insight, chat_with_data, explain_anomaly
 from forecasting import (run_forecast, forecast_all_channels,
                          forecast_summary_stats, generate_forecast_insight, METRICS)
+from budget_optimizer import allocate_budget, compute_channel_efficiency, generate_budget_insight
+from report_generator import build_pdf_report
+from report_generator import build_pdf_report
 
 # ─── Page config ────────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -228,6 +232,12 @@ def load_synthetic():
 def load_uploaded(file):
     df = pd.read_csv(file)
     df["date"] = pd.to_datetime(df["date"])
+    # Auto-add campaign_id if not present
+    if "campaign_id" not in df.columns:
+        df.insert(0, "campaign_id", [f"C{i+1:04d}" for i in range(len(df))])
+    # Auto-add campaign_name if not present
+    if "campaign_name" not in df.columns:
+        df.insert(1, "campaign_name", df["campaign_id"])
     df = compute_metrics(df)
     df = detect_anomalies(df)
     return df
@@ -252,12 +262,14 @@ if "data_context" not in st.session_state or st.session_state.get("context_len")
 data_context = st.session_state["data_context"]
 
 # ─── Tabs ────────────────────────────────────────────────────────────────────
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "📊  Overview",
     "🚨  Anomalies",
     "🧠  AI Chat",
     "📈  Campaign Explorer",
     "🔮  Forecast",
+    "💰  Budget Optimizer",
+    "📄  Export Report",
 ])
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -405,7 +417,7 @@ with tab2:
                 if not api_key:
                     st.info("🔑 Add API key to enable AI root-cause analysis.")
                 else:
-                    btn_key = f"explain_{row['campaign_id']}"
+                    btn_key = f"explain_{row.get('campaign_id', row.get('campaign_name', str(_)))}"
                     if st.button("🔍 Explain this anomaly with AI", key=btn_key):
                         with st.spinner("Diagnosing…"):
                             explanation = explain_anomaly(api_key, data_context, row.to_dict())
@@ -763,3 +775,430 @@ with tab5:
             </div>
         </div>
         """, unsafe_allow_html=True)
+# ═══════════════════════════════════════════════════════════════════════════════
+# TAB 6 — BUDGET OPTIMIZER
+# ═══════════════════════════════════════════════════════════════════════════════
+with tab6:
+    st.markdown('<p class="section-title">AI-Powered Budget Optimizer</p>', unsafe_allow_html=True)
+    st.markdown("Enter your total budget and get a data-driven allocation across channels — scored by ROAS, CVR, and cost efficiency.")
+    st.markdown("")
+
+    # ── Efficiency preview (always visible) ───────────────────────────────────
+    eff_df = compute_channel_efficiency(df)
+
+    st.markdown('<p class="section-title">Channel Efficiency Scores</p>', unsafe_allow_html=True)
+    COLORS = ["#00e5a0", "#00b8d4", "#4a90d9", "#a78bfa"]
+
+    score_cols = st.columns(len(eff_df))
+    for i, row in eff_df.iterrows():
+        score_pct = int(row["composite_score"] * 100)
+        color = COLORS[i % len(COLORS)]
+        score_cols[i].markdown(f"""
+        <div class="metric-card">
+          <div class="metric-label">{row['channel']}</div>
+          <div class="metric-value" style="color:{color}">{score_pct}<span style="font-size:1rem">/100</span></div>
+          <div class="metric-delta">ROAS {row['avg_roas']:.1f}x · CVR {row['avg_cvr']:.1%}</div>
+        </div>""", unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # ── Controls ──────────────────────────────────────────────────────────────
+    st.markdown('<p class="section-title">Configure Allocation</p>', unsafe_allow_html=True)
+    bc1, bc2, bc3 = st.columns(3)
+
+    with bc1:
+        total_budget = st.number_input(
+            "💵 Total Budget ($)",
+            min_value=1000,
+            max_value=10_000_000,
+            value=50_000,
+            step=1000,
+            help="Your total marketing budget to allocate across channels",
+        )
+    with bc2:
+        strategy = st.selectbox(
+            "🎯 Allocation Strategy",
+            options=["balanced", "aggressive", "conservative"],
+            format_func=lambda s: {
+                "balanced":     "⚖️  Balanced — follow the data",
+                "aggressive":   "🚀 Aggressive — double down on winners",
+                "conservative": "🛡️  Conservative — spread the risk",
+            }[s],
+        )
+    with bc3:
+        min_floor = st.slider(
+            "📐 Minimum per channel (%)",
+            min_value=0,
+            max_value=20,
+            value=5,
+            help="No channel will receive less than this % of budget",
+        )
+
+    optimize_btn = st.button("💰 Optimise Budget", type="primary")
+
+    if optimize_btn:
+        with st.spinner("Crunching the numbers…"):
+            alloc = allocate_budget(df, total_budget=total_budget,
+                                    min_pct=min_floor / 100,
+                                    strategy=strategy)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown('<p class="section-title">Recommended Allocation</p>', unsafe_allow_html=True)
+
+        # ── Allocation KPI cards ───────────────────────────────────────────────
+        alloc_cols = st.columns(len(alloc))
+        for i, row in alloc.iterrows():
+            color = COLORS[i % len(COLORS)]
+            alloc_cols[i].markdown(f"""
+            <div class="metric-card">
+              <div class="metric-label">{row['channel']}</div>
+              <div class="metric-value" style="color:{color}">${row['recommended_spend']:,.0f}</div>
+              <div class="metric-delta">{row['allocation_pct']:.1%} of budget</div>
+            </div>""", unsafe_allow_html=True)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # ── Charts side by side ────────────────────────────────────────────────
+        ch_left, ch_right = st.columns(2)
+
+        with ch_left:
+            st.markdown('<p class="section-title">Budget Split</p>', unsafe_allow_html=True)
+            fig_pie = px.pie(
+                alloc,
+                names="channel",
+                values="recommended_spend",
+                color_discrete_sequence=COLORS,
+                hole=0.55,
+            )
+            fig_pie.update_layout(
+                paper_bgcolor="rgba(0,0,0,0)",
+                font_color="#8892a4",
+                margin=dict(l=0, r=0, t=10, b=0),
+                showlegend=True,
+                legend=dict(orientation="h", yanchor="bottom", y=-0.15),
+            )
+            fig_pie.update_traces(textposition="outside", textinfo="percent+label")
+            st.plotly_chart(fig_pie, use_container_width=True)
+
+        with ch_right:
+            st.markdown('<p class="section-title">Projected Conversions by Channel</p>',
+                        unsafe_allow_html=True)
+            fig_bar = px.bar(
+                alloc,
+                x="channel",
+                y="projected_conversions",
+                color="channel",
+                color_discrete_sequence=COLORS,
+                labels={"projected_conversions": "Projected Conversions", "channel": ""},
+                text="projected_conversions",
+            )
+            fig_bar.update_traces(textposition="outside")
+            fig_bar.update_layout(
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                font_color="#8892a4",
+                showlegend=False,
+                margin=dict(l=0, r=0, t=10, b=0),
+                xaxis=dict(gridcolor="#1e2230"),
+                yaxis=dict(gridcolor="#1e2230"),
+            )
+            st.plotly_chart(fig_bar, use_container_width=True)
+
+        # ── Detailed comparison table ──────────────────────────────────────────
+        st.markdown('<p class="section-title">Full Breakdown</p>', unsafe_allow_html=True)
+        display_alloc = alloc.copy()
+        display_alloc["allocation_pct"]    = display_alloc["allocation_pct"].map("{:.1%}".format)
+        display_alloc["recommended_spend"] = display_alloc["recommended_spend"].map("${:,.0f}".format)
+        display_alloc["avg_roas"]          = display_alloc["avg_roas"].map("{:.2f}x".format)
+        display_alloc["avg_cvr"]           = display_alloc["avg_cvr"].map("{:.1%}".format)
+        display_alloc["cost_per_conv"]     = display_alloc["cost_per_conv"].map("${:.2f}".format)
+        display_alloc["composite_score"]   = (display_alloc["composite_score"] * 100).map("{:.0f}/100".format)
+
+        st.dataframe(
+            display_alloc.rename(columns={
+                "channel": "Channel",
+                "composite_score": "Efficiency Score",
+                "avg_roas": "Avg ROAS",
+                "avg_cvr": "Avg CVR",
+                "cost_per_conv": "Cost/Conv",
+                "allocation_pct": "Allocation %",
+                "recommended_spend": "Budget",
+                "projected_conversions": "Projected Conv.",
+            }),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        # ── Total projected ROI summary ────────────────────────────────────────
+        total_proj_conv = alloc["projected_conversions"].sum()
+        assumed_rev_per_conv = 50
+        projected_revenue = total_proj_conv * assumed_rev_per_conv
+        projected_roas = projected_revenue / total_budget if total_budget > 0 else 0
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        rs1, rs2, rs3 = st.columns(3)
+        rs1.markdown(f"""<div class="metric-card">
+          <div class="metric-label">TOTAL BUDGET</div>
+          <div class="metric-value">${total_budget:,.0f}</div>
+          <div class="metric-delta">&nbsp;</div></div>""", unsafe_allow_html=True)
+        rs2.markdown(f"""<div class="metric-card">
+          <div class="metric-label">PROJECTED CONVERSIONS</div>
+          <div class="metric-value">{total_proj_conv:,}</div>
+          <div class="metric-delta">based on historical CPC</div></div>""", unsafe_allow_html=True)
+        rs3.markdown(f"""<div class="metric-card">
+          <div class="metric-label">PROJECTED ROAS</div>
+          <div class="metric-value">{projected_roas:.1f}x</div>
+          <div class="metric-delta">at $50 revenue/conversion</div></div>""", unsafe_allow_html=True)
+
+        # ── AI Budget Insight ──────────────────────────────────────────────────
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown('<p class="section-title">AI Budget Recommendation</p>', unsafe_allow_html=True)
+
+        if not api_key:
+            st.info("🔑 Enter your Anthropic API key in the sidebar for AI-powered budget advice.")
+        else:
+            with st.spinner("Claude is analysing your allocation…"):
+                budget_insight = generate_budget_insight(
+                    api_key, alloc, total_budget, strategy
+                )
+            st.markdown(
+                f'<div style="background:#0f1a14;border:1px solid #1a3028;border-radius:10px;'
+                f'padding:1rem 1.2rem;color:#c8cdd8;font-size:0.88rem;line-height:1.7;">'
+                f'{budget_insight}</div>',
+                unsafe_allow_html=True
+            )
+
+        # ── CSV export ────────────────────────────────────────────────────────
+        st.markdown("<br>", unsafe_allow_html=True)
+        csv_budget = alloc.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            "⬇️ Download allocation as CSV",
+            data=csv_budget,
+            file_name=f"pulseai_budget_allocation_${int(total_budget):,}.csv",
+            mime="text/csv",
+        )
+
+    else:
+        st.markdown("""
+        <div style="background:#10131c;border:1px solid #1e2230;border-radius:12px;
+                    padding:3rem;text-align:center;color:#555e70;">
+            <div style="font-size:3rem;margin-bottom:1rem">💰</div>
+            <div style="font-family:'Space Mono',monospace;font-size:0.8rem;
+                        letter-spacing:0.1em;text-transform:uppercase;">
+                Enter your budget above and click Optimise Budget
+            </div>
+            <div style="margin-top:0.8rem;font-size:0.82rem;">
+                Scored by ROAS · CVR · CTR · Cost per Conversion · 3 allocation strategies
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TAB 7 — PDF EXPORT REPORT
+# ═══════════════════════════════════════════════════════════════════════════════
+with tab7:
+    st.markdown('<p class="section-title">Export Branded PDF Report</p>', unsafe_allow_html=True)
+    st.markdown("Generate a professional, branded PDF report with all charts, KPIs, anomaly data, and AI insights — ready to share with stakeholders.")
+    st.markdown("")
+
+    # ── Report config ─────────────────────────────────────────────────────────
+    st.markdown('<p class="section-title">Report Settings</p>', unsafe_allow_html=True)
+
+    rc1, rc2 = st.columns(2)
+    with rc1:
+        author_name = st.text_input(
+            "👤 Author / Prepared by",
+            value="Marketing Team",
+            placeholder="Your name or team name",
+        )
+    with rc2:
+        include_ai = st.toggle(
+            "🧠 Include AI Executive Summary",
+            value=True if api_key else False,
+            disabled=not api_key,
+            help="Requires Anthropic API key in sidebar",
+        )
+
+    # What's included preview
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown('<p class="section-title">What\'s Included in the Report</p>', unsafe_allow_html=True)
+
+    inc1, inc2, inc3 = st.columns(3)
+    with inc1:
+        st.markdown("""
+        <div class="metric-card">
+          <div class="metric-label">PAGE 1</div>
+          <div style="color:#c8cdd8;font-size:0.85rem;margin-top:0.5rem;line-height:1.8;">
+            ✅ Cover page with branding<br>
+            ✅ Overall KPI strip<br>
+            ✅ AI Executive Summary
+          </div>
+        </div>""", unsafe_allow_html=True)
+    with inc2:
+        st.markdown("""
+        <div class="metric-card">
+          <div class="metric-label">PAGES 2–3</div>
+          <div style="color:#c8cdd8;font-size:0.85rem;margin-top:0.5rem;line-height:1.8;">
+            ✅ Channel performance chart<br>
+            ✅ Segment performance chart<br>
+            ✅ Open rate trend chart
+          </div>
+        </div>""", unsafe_allow_html=True)
+    with inc3:
+        st.markdown("""
+        <div class="metric-card">
+          <div class="metric-label">PAGES 4–5</div>
+          <div style="color:#c8cdd8;font-size:0.85rem;margin-top:0.5rem;line-height:1.8;">
+            ✅ Flagged anomaly table<br>
+            ✅ Full campaign data (top 30)<br>
+            ✅ Branded back cover
+          </div>
+        </div>""", unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # ── Generate button ───────────────────────────────────────────────────────
+    gen_col, _ = st.columns([1, 2])
+    with gen_col:
+        generate_pdf_btn = st.button("📄 Generate PDF Report", type="primary", use_container_width=True)
+
+    if generate_pdf_btn:
+        with st.spinner("Building your report — rendering charts and compiling pages…"):
+            try:
+                # Optionally get AI insight text
+                insight_text = ""
+                if include_ai and api_key:
+                    from insights import generate_insight
+                    ch_str = channel_summary(df)[["channel","avg_open_rate","avg_ctr","avg_cvr"]].to_string(index=False)
+                    anomaly_list = df[df["is_anomaly"]]["campaign_name"].tolist()[:5]
+                    insight_text = generate_insight(api_key, ch_str, anomaly_list)
+
+                pdf_bytes = generate_report(
+                    df=df,
+                    channel_df=channel_summary(df),
+                    segment_df=segment_summary(df),
+                    anomalies_df=df[df["is_anomaly"]].copy(),
+                    insight_text=insight_text,
+                    author_name=author_name,
+                )
+
+                filename = f"PulseAI_Report_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf"
+
+                st.success(f"✅ Report generated successfully! **{len(pdf_bytes) // 1024} KB**")
+                st.markdown("<br>", unsafe_allow_html=True)
+
+                st.download_button(
+                    label="⬇️ Download PDF Report",
+                    data=pdf_bytes,
+                    file_name=filename,
+                    mime="application/pdf",
+                    use_container_width=True,
+                )
+
+                st.markdown(
+                    f'<p style="color:#555e70;font-size:0.78rem;text-align:center;margin-top:0.5rem;">'
+                    f'File: {filename} · {len(pdf_bytes)//1024} KB · '
+                    f'Generated {datetime.now().strftime("%d %b %Y %H:%M")}</p>',
+                    unsafe_allow_html=True
+                )
+
+            except Exception as e:
+                st.error(f"❌ PDF generation failed: {e}")
+                st.info("Make sure `reportlab` and `kaleido` are installed: `pip install reportlab kaleido`")
+    else:
+        st.markdown("""
+        <div style="background:#10131c;border:1px solid #1e2230;border-radius:12px;
+                    padding:3rem;text-align:center;color:#555e70;">
+            <div style="font-size:3rem;margin-bottom:1rem">📄</div>
+            <div style="font-family:'Space Mono',monospace;font-size:0.8rem;
+                        letter-spacing:0.1em;text-transform:uppercase;">
+                Configure settings above and click Generate PDF Report
+            </div>
+            <div style="margin-top:0.8rem;font-size:0.82rem;">
+                Multi-page · Branded · Charts embedded · AI insights included
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TAB 7 — PDF EXPORT REPORT
+# ═══════════════════════════════════════════════════════════════════════════════
+with tab7:
+    st.markdown('<p class="section-title">Export Branded PDF Report</p>', unsafe_allow_html=True)
+    st.markdown("Generate a complete, branded PDF with all charts, KPIs, anomaly table, and AI insight — ready to share with your team.")
+    st.markdown("")
+
+    # Options
+    ep1, ep2 = st.columns(2)
+    with ep1:
+        author_name = st.text_input("👤 Your name (appears in report)", placeholder="e.g. Abhishek Deshpande")
+    with ep2:
+        include_ai  = st.checkbox("Include AI-generated insight in PDF", value=True)
+
+    st.markdown("")
+
+    # AI insight for PDF (generate fresh or use cached)
+    pdf_insight = ""
+    if include_ai and api_key:
+        if st.button("⚡ Pre-generate AI Insight for PDF"):
+            with st.spinner("Generating AI insight…"):
+                from insights import generate_insight
+                ch_str = channel_summary(df)[["channel","avg_open_rate","avg_ctr","avg_cvr"]].to_string(index=False)
+                anomaly_list = df[df["is_anomaly"]]["campaign_name"].tolist()[:5]
+                pdf_insight = generate_insight(api_key, ch_str, anomaly_list)
+                st.session_state["pdf_insight"] = pdf_insight
+            st.success("AI insight ready — it will be embedded in the PDF.")
+        elif "pdf_insight" in st.session_state:
+            pdf_insight = st.session_state["pdf_insight"]
+            st.info("Using previously generated AI insight.")
+    elif include_ai and not api_key:
+        st.info("🔑 Add API key in the sidebar to include AI insight in the PDF.")
+
+    st.markdown("")
+
+    # Generate button
+    gen_col, _ = st.columns([1, 3])
+    generate_pdf = gen_col.button("📄 Generate PDF Report", type="primary")
+
+    if generate_pdf:
+        with st.spinner("Building your branded PDF report…"):
+            try:
+                pdf_bytes = build_pdf_report(
+                    df=df,
+                    channel_df=channel_summary(df),
+                    segment_df=segment_summary(df),
+                    anomalies_df=df[df["is_anomaly"]].copy(),
+                    ai_insight=pdf_insight,
+                    author_name=author_name or "PulseAI",
+                )
+                filename = f"PulseAI_Report_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf"
+                st.success(f"✅ Report generated! Click below to download.")
+                st.download_button(
+                    label="⬇️ Download PDF Report",
+                    data=pdf_bytes,
+                    file_name=filename,
+                    mime="application/pdf",
+                )
+            except Exception as e:
+                st.error(f"❌ PDF generation failed: {e}")
+                st.info("Make sure `reportlab` and `kaleido` are installed:\n```\npip install reportlab kaleido\n```")
+    else:
+        # Preview of what will be in the report
+        st.markdown('<p class="section-title">Report will include</p>', unsafe_allow_html=True)
+        items = [
+            ("📊", "Overall KPI summary", "Open Rate, CTR, CVR, ROAS, Total Spend, Conversions, Anomaly count"),
+            ("📈", "Channel performance chart + table", "Bar chart and data table for all channels"),
+            ("👥", "Segment performance chart", "Bar chart comparing all user segments"),
+            ("📉", "Open Rate trend chart", "Time-series line chart by channel"),
+            ("🚨", "Anomaly campaigns table", "Up to 10 flagged campaigns with reasons"),
+            ("🧠", "AI-generated insight", "Claude's analysis embedded in the report (if API key provided)"),
+        ]
+        for icon, title, desc in items:
+            st.markdown(
+                f'<div style="background:#10131c;border:1px solid #1e2230;border-radius:8px;'
+                f'padding:0.6rem 1rem;margin-bottom:0.4rem;display:flex;gap:0.8rem;">'
+                f'<span style="font-size:1.2rem">{icon}</span>'
+                f'<div><div style="color:#eef0f5;font-size:0.85rem;font-weight:600">{title}</div>'
+                f'<div style="color:#555e70;font-size:0.78rem">{desc}</div></div></div>',
+                unsafe_allow_html=True
+            )

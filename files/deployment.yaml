@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pulseai
+  namespace: pulseai
+  labels:
+    app: pulseai
+    version: v2.0
+spec:
+  replicas: 2                     # Run 2 pods for high availability
+  selector:
+    matchLabels:
+      app: pulseai
+  strategy:
+    type: RollingUpdate           # Zero-downtime deployments
+    rollingUpdate:
+      maxSurge: 1                 # Spin up 1 extra pod during update
+      maxUnavailable: 0           # Never take pods down before new ones are ready
+
+  template:
+    metadata:
+      labels:
+        app: pulseai
+        version: v2.0
+    spec:
+      # Security context — run as non-root
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+
+      containers:
+        - name: pulseai
+          image: YOUR_DOCKERHUB_USERNAME/pulseai:latest  # ← replace with your image
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8501
+              name: streamlit
+
+          # Inject API key from Kubernetes secret
+          env:
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: pulseai-secrets
+                  key: ANTHROPIC_API_KEY
+
+          # Resource limits (important for production)
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
+
+          # Liveness probe — restart pod if app hangs
+          livenessProbe:
+            httpGet:
+              path: /_stcore/health
+              port: 8501
+            initialDelaySeconds: 40
+            periodSeconds: 30
+            failureThreshold: 3
+
+          # Readiness probe — only send traffic when app is ready
+          readinessProbe:
+            httpGet:
+              path: /_stcore/health
+              port: 8501
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 3
+
+      # Restart policy
+      restartPolicy: Always
+
+      # Spread pods across nodes for resilience
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: pulseai
