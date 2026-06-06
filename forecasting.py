@@ -1,6 +1,14 @@
 import pandas as pd
 import numpy as np
-from prophet import Prophet
+try:
+    try:
+    from prophet import Prophet
+    PROPHET_AVAILABLE = True
+except ImportError:
+    PROPHET_AVAILABLE = False
+    PROPHET_AVAILABLE = True
+except ImportError:
+    PROPHET_AVAILABLE = False
 import warnings
 warnings.filterwarnings("ignore")
 
