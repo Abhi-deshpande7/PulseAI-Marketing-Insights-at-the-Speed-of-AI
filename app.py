@@ -183,7 +183,10 @@ with st.sidebar:
     st.markdown("---")
 
     st.markdown("## 🔑 API Key")
-    api_key = st.text_input("Anthropic API Key", type="password", placeholder="sk-ant-...")
+    import os
+    api_key = os.environ.get("GROQ_API_KEY", "")
+    if not api_key:
+        api_key = st.text_input("Groq API Key", type="password", placeholder="gsk_...")
     st.markdown("---")
 
     st.markdown("## 📂 Data Source")
@@ -375,7 +378,7 @@ with tab1:
     # One-shot AI insight
     st.markdown('<p class="section-title">AI-Generated Snapshot Insight</p>', unsafe_allow_html=True)
     if not api_key:
-        st.info("🔑 Enter your Anthropic API key in the sidebar to enable AI insights.")
+        st.info("🔑 Enter your Groq API Key in the sidebar to enable AI insights.")
     else:
         if st.button("⚡ Generate Snapshot Insight"):
             with st.spinner("Analysing campaign data…"):
@@ -435,7 +438,7 @@ with tab3:
     st.markdown('<p class="section-title">Chat with your campaign data</p>', unsafe_allow_html=True)
 
     if not api_key:
-        st.warning("🔑 Enter your Anthropic API key in the sidebar to start chatting.")
+        st.warning("🔑 Enter your Groq API Key in the sidebar to start chatting.")
     else:
         # Init history
         if "chat_history" not in st.session_state:
@@ -728,7 +731,7 @@ with tab5:
                             unsafe_allow_html=True)
 
                 if not api_key:
-                    st.info("🔑 Enter your Anthropic API key in the sidebar for AI forecast interpretation.")
+                    st.info("🔑 Enter your Groq API Key in the sidebar for AI forecast interpretation.")
                 else:
                     with st.spinner("Interpreting forecast…"):
                         fi = generate_forecast_insight(
@@ -955,7 +958,7 @@ with tab6:
         st.markdown('<p class="section-title">AI Budget Recommendation</p>', unsafe_allow_html=True)
 
         if not api_key:
-            st.info("🔑 Enter your Anthropic API key in the sidebar for AI-powered budget advice.")
+            st.info("🔑 Enter your Groq API Key in the sidebar for AI-powered budget advice.")
         else:
             with st.spinner("Claude is analysing your allocation…"):
                 budget_insight = generate_budget_insight(
@@ -1016,7 +1019,7 @@ with tab7:
             "🧠 Include AI Executive Summary",
             value=True if api_key else False,
             disabled=not api_key,
-            help="Requires Anthropic API key in sidebar",
+            help="Requires Groq API Key in sidebar",
         )
 
     # What's included preview
