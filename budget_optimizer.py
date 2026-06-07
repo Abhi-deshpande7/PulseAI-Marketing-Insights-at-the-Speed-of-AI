@@ -1,4 +1,4 @@
-﻿import pandas as pd
+import pandas as pd
 import numpy as np
 
 
@@ -63,8 +63,8 @@ def allocate_budget(df, total_budget, min_pct=0.05, strategy="balanced"):
 
 
 def generate_budget_insight(api_key, allocation_df, total_budget, strategy):
-    import anthropic
-    client = anthropic.Anthropic(api_key=api_key)
+    from groq import Groq
+    client = Groq(api_key=api_key)
     alloc_str = allocation_df[["channel", "allocation_pct", "recommended_spend",
                                 "avg_roas", "projected_conversions"]].to_string(index=False)
     prompt = f"""You are a senior media buyer. A brand has a total budget of ${total_budget:,.0f}.
@@ -81,9 +81,9 @@ Provide:
 
 Be direct and specific. No generic advice."""
 
-    response = client.messages.create(
-        model="claude-sonnet-4-20250514",
+    response = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
         max_tokens=450,
         messages=[{"role": "user", "content": prompt}]
     )
-    return response.content[0].text
+    return response.choices[0].message.content
